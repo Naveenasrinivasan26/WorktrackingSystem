@@ -16,6 +16,7 @@ const apiRequest = async (path, options = {}) => {
   let body = null;
   try {
     body = await response.json();
+  // eslint-disable-next-line no-unused-vars
   } catch (_error) {
     body = null;
   }
