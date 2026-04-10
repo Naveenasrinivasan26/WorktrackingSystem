@@ -63,7 +63,7 @@ const login = asyncHandler(async (req, res) => {
     200,
     true,
     "Login successful",
-    { user: sanitizeUser(user) },
+    { user: sanitizeUser(user), token },
     null
   );
 });
