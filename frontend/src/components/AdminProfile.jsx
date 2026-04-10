@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import icon from '../assets/icon.png'; // Import the icon
+
 import { toast } from 'react-toastify';
 import { apiRequest } from '../services/api';
 
@@ -19,13 +19,6 @@ const AdminProfile = ({ user }) => {
     newPassword: '',
     confirmPassword: ''
   });
-
-  const [activityLog, setActivityLog] = useState([
-    { id: 1, action: 'Added new employee John Doe', date: '2024-01-15 10:30 AM' },
-    { id: 2, action: 'Generated monthly report', date: '2024-01-14 04:45 PM' },
-    { id: 3, action: 'Updated work policies', date: '2024-01-13 11:20 AM' },
-    { id: 4, action: 'Reviewed work reports', date: '2024-01-12 09:15 AM' }
-  ]);
 
   const handleInputChange = (e) => {
     setProfileData({
@@ -56,9 +49,7 @@ const AdminProfile = ({ user }) => {
     setIsEditing(false);
   };
 
-  const getInitials = (name) => {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase();
-  };
+ 
 
   return (
     <div className="admin-profile-page">
