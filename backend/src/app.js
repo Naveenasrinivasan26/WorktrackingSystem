@@ -46,7 +46,9 @@ app.use(
     standardHeaders: true,
   })
 );
-
+app.get("/", (_, res) => {
+  res.send("Worktracking API running");
+});
 app.get("/api/health", (_, res) => {
   res.json({ success: true, message: "API is healthy", data: null, error: null });
 });
