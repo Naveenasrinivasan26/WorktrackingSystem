@@ -15,22 +15,18 @@ const enquiryRoutes = require("./routes/enquiryRoutes");
 const app = express();
 
 app.use(helmet());
-const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:5173")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
 
+// ✅ FIXED CORS (Render + Vercel)
 app.use(
   cors({
-    origin(origin, callback) {
-      // Allow server-to-server calls and tools that send no Origin header.
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("CORS origin not allowed"));
-    },
+    origin: [
+      "http://localhost:5173",
+      "https://worktracking-system.vercel.app",
+    ],
     credentials: true,
   })
 );
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -46,19 +42,30 @@ app.use(
     standardHeaders: true,
   })
 );
+
+// Root route
 app.get("/", (_, res) => {
   res.send("Worktracking API running");
 });
+
+// Health check
 app.get("/api/health", (_, res) => {
-  res.json({ success: true, message: "API is healthy", data: null, error: null });
+  res.json({
+    success: true,
+    message: "API is healthy",
+    data: null,
+    error: null,
+  });
 });
 
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/work", workRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/enquiry", enquiryRoutes);
 
+// Error handlers
 app.use(notFound);
 app.use(errorHandler);
 
