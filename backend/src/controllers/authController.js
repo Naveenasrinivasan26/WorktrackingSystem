@@ -34,6 +34,7 @@ const register = asyncHandler(async (req, res) => {
 
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
+
   const user = await User.findOne({ email });
   if (!user || !(await user.comparePassword(password))) {
     const err = new Error("Invalid email or password");
@@ -48,12 +49,29 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const token = generateToken(user);
-  return sendResponse(res, 200, true, "Login successful", { token, user: sanitizeUser(user) }, null);
+
+  // ✅ FIX: set cookie for Vercel + Render
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    maxAge: 24 * 60 * 60 * 1000,
+  });
+
+  return sendResponse(
+    res,
+    200,
+    true,
+    "Login successful",
+    { user: sanitizeUser(user) },
+    null
+  );
 });
 
-const logout = asyncHandler(async (_req, res) =>
-  sendResponse(res, 200, true, "Logout successful", null, null)
-);
+const logout = asyncHandler(async (_req, res) => {
+  res.clearCookie("token");
+  sendResponse(res, 200, true, "Logout successful", null, null);
+});
 
 const me = asyncHandler(async (req, res) =>
   sendResponse(res, 200, true, "Current profile fetched", sanitizeUser(req.user), null)
@@ -68,7 +86,6 @@ const updateProfile = asyncHandler(async (req, res) => {
   if (phone !== undefined) user.phone = phone;
   if (location !== undefined) user.location = location;
 
-  // Admin requires current password for password updates.
   if (password) {
     if (user.role === "admin") {
       if (!currentPassword || !(await user.comparePassword(currentPassword))) {
@@ -77,7 +94,6 @@ const updateProfile = asyncHandler(async (req, res) => {
         throw err;
       }
     }
-
     user.password = password;
   }
 
@@ -138,6 +154,7 @@ const resetPassword = asyncHandler(async (req, res) => {
 
   user.password = password;
   await user.save();
+
   resetRecord.isUsed = true;
   await resetRecord.save();
 
