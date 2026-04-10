@@ -122,11 +122,11 @@ const AdminProfile = ({ user }) => {
                 )}
               </div>
               <div className="info-row">
-                <div className="info-label">Role:</div>
+                {/* <div className="info-label">Role:</div> */}
                 <div className="info-value role-badge">{profileData.role}</div>
               </div>
               <div className="info-row">
-                <div className="info-label">Position:</div>
+                {/* <div className="info-label">Position:</div> */}
                 {isEditing ? (
                   <input
                     type="text"
