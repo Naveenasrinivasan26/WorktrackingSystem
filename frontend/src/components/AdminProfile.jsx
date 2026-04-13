@@ -111,21 +111,7 @@ const AdminProfile = ({ user }) => {
               </div>
               <div className="info-row">
              
-                <div className="info-value role-badge">{profileData.role}</div>
-              </div>
-              <div className="info-row">
-              
-                {isEditing ? (
-                  <input
-                    type="text"
-                    name="position"
-                    value={profileData.position}
-                    onChange={handleInputChange}
-                    className="edit-input"
-                  />
-                ) : (
-                  <div className="info-value">{profileData.position}</div>
-                )}
+                
               </div>
              
               
