@@ -109,10 +109,10 @@ const AdminProfile = ({ user }) => {
                   <div className="info-value">{profileData.email}</div>
                 )}
               </div>
-              <div className="info-row">
+              {/* <div className="info-row"> */}
              
                 
-              </div>
+              {/* </div> */}
              
               
               </div>
