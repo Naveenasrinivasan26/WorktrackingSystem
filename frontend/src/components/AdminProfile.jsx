@@ -53,10 +53,7 @@ const AdminProfile = ({ user }) => {
 
   return (
     <div className="admin-profile-page">
-      {/* <div className="page-header">
-        <h1>Admin Profile</h1>
-        <p>Manage your profile information and view activity</p>
-      </div> */}
+     
 
       <div className="profile-container">
         
@@ -113,11 +110,11 @@ const AdminProfile = ({ user }) => {
                 )}
               </div>
               <div className="info-row">
-                {/* <div className="info-label">Role:</div> */}
+             
                 <div className="info-value role-badge">{profileData.role}</div>
               </div>
               <div className="info-row">
-                {/* <div className="info-label">Position:</div> */}
+              
                 {isEditing ? (
                   <input
                     type="text"
@@ -130,33 +127,8 @@ const AdminProfile = ({ user }) => {
                   <div className="info-value">{profileData.position}</div>
                 )}
               </div>
-              {/* <div className="info-row"> */}
-                {/* <div className="info-label">Phone Number:</div>
-                {isEditing ? (
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={profileData.phone}
-                    onChange={handleInputChange}
-                    className="edit-input"
-                  />
-                ) : (
-                  <div className="info-value">{profileData.phone}</div>
-                )}
-              </div> */}
-              <div className="info-row">
-                <div className="info-label">Location:</div>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    name="location"
-                    value={profileData.location}
-                    onChange={handleInputChange}
-                    className="edit-input"
-                  />
-                ) : (
-                  <div className="info-value">{profileData.location}</div>
-                )}
+             
+              
               </div>
             </div>
           </div>
@@ -231,7 +203,7 @@ const AdminProfile = ({ user }) => {
           </div>
         
       </div>
-    </div>
+    
   );
 };
 
