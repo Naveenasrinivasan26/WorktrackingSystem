@@ -71,7 +71,7 @@ const AdminProfile = ({ user }) => {
                     <path d="M17 3l4 4-7 7H10v-4l7-7z" />
                     <path d="M4 20h16" />
                   </svg>
-                  Edit Profile
+                  {/* Edit Profile */}
                 </button>
               ) : (
                 <div className="edit-actions">
@@ -109,10 +109,7 @@ const AdminProfile = ({ user }) => {
                   <div className="info-value">{profileData.email}</div>
                 )}
               </div>
-              {/* <div className="info-row"> */}
              
-                
-              {/* </div> */}
              
               
               </div>
