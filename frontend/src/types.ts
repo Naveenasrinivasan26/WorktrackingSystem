@@ -156,6 +156,14 @@ export interface EmployeeQueryDetail extends EmployeeQuery {
 
 export type EodStatus = 'marked' | 'absent_leave';
 
+/** Computed submission window status (server-driven). */
+export type EodSubmissionStatus =
+  | 'open'
+  | 'submitted'
+  | 'locked'
+  | 'pending'
+  | 'before_open';
+
 export interface EodRecord {
   id: string;
   userId: string;
@@ -169,6 +177,38 @@ export interface EodRecord {
   employeeId?: string | null;
 }
 
+export interface EodEnablement {
+  id: string;
+  userId: string;
+  date: string;
+  enabledById: string;
+  enabledByName: string;
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface EodWindowMeta {
+  timezone: string;
+  openHour: number;
+  closeHour: number;
+  today: string;
+  phase: 'before_open' | 'open' | 'closed';
+  isOpen: boolean;
+  serverNow: string;
+}
+
+export interface EodSubmissionGate {
+  date: string;
+  canSubmit: boolean;
+  submissionStatus: EodSubmissionStatus;
+  eodStatus: 'marked' | 'absent_leave' | 'not_marked';
+  hrEnabled: boolean;
+  reason?: string | null;
+  message: string;
+  window: EodWindowMeta;
+  enablement?: EodEnablement | null;
+}
+
 export interface EodReportEmployee {
   userId: string;
   fullName: string;
@@ -176,12 +216,17 @@ export interface EodReportEmployee {
   department: string;
   employeeId?: string | null;
   eodStatus: 'marked' | 'absent_leave' | 'not_marked';
+  submissionStatus: EodSubmissionStatus;
+  hrEnabled: boolean;
+  canEnable: boolean;
+  canDisable: boolean;
   reason?: string | null;
   markedAt?: string | null;
 }
 
 export interface EodReport {
   date: string;
+  window: EodWindowMeta;
   marked: EodReportEmployee[];
   absentLeave: EodReportEmployee[];
   notMarked: EodReportEmployee[];

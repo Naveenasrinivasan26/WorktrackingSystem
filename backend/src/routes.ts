@@ -25,9 +25,13 @@ import {
   markAllNotificationsRead,
   markAbsentLeave,
   getEodReport,
+  getMyEodSubmissionGate,
+  enableEodSubmission,
+  disableEodSubmission,
 } from './dbStore.js';
 import { authenticateToken, requireRole, generateTokens, verifyRefreshToken, AuthenticatedRequest } from './auth.js';
 import { WorkFilters, WorkStatus, UserRole, QueryFilters, QueryStatus, QueryType } from '../../frontend/src/types.js';
+import { getTodayInAppTimezone } from './eodWindow.js';
 
 const router = Router();
 
@@ -261,7 +265,8 @@ router.post('/works', authenticateToken, async (req: AuthenticatedRequest, res: 
 
     return res.status(201).json(created);
   } catch (err: any) {
-    return res.status(500).json({ message: err.message || 'Failed to create work update' });
+    const status = /EOD|9:00|7:00|locked|enable|timezone|date/i.test(err.message || '') ? 400 : 500;
+    return res.status(status).json({ message: err.message || 'Failed to create work update' });
   }
 });
 
@@ -496,7 +501,7 @@ router.post('/eod/absent-leave', authenticateToken, async (req: AuthenticatedReq
 
 router.get('/eod/report', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    const date = (req.query.date as string) || getTodayInAppTimezone();
     const isEmployee = req.user!.role === 'employee';
     const report = await getEodReport(date, {
       department: isEmployee ? undefined : (req.query.department as string),
@@ -507,6 +512,46 @@ router.get('/eod/report', authenticateToken, async (req: AuthenticatedRequest, r
     return res.status(400).json({ message: err.message || 'Failed to load EOD report' });
   }
 });
+
+router.get('/eod/submission-status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const date = (req.query.date as string) || undefined;
+    const gate = await getMyEodSubmissionGate(req.user!, date);
+    return res.json(gate);
+  } catch (err: any) {
+    return res.status(400).json({ message: err.message || 'Failed to load EOD submission status' });
+  }
+});
+
+router.post(
+  '/eod/enable',
+  authenticateToken,
+  requireRole('super_admin', 'admin', 'manager'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId, date, note } = req.body;
+      const enablement = await enableEodSubmission(req.user!, userId, date, note);
+      return res.status(201).json(enablement);
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || 'Failed to enable EOD submission' });
+    }
+  }
+);
+
+router.post(
+  '/eod/disable',
+  authenticateToken,
+  requireRole('super_admin', 'admin', 'manager'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId, date } = req.body;
+      const result = await disableEodSubmission(req.user!, userId, date);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || 'Failed to disable EOD submission' });
+    }
+  }
+);
 
 // ==================== MIGRATION & SEED ROUTES ====================
 

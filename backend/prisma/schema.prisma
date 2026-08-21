@@ -37,6 +37,8 @@ model User {
   respondedQueries    EmployeeQuery[]  @relation("QueryResponder")
   notifications       Notification[]
   eodRecords          EodRecord[]
+  eodEnablements      EodEnablement[] @relation("EodEnablementEmployee")
+  eodEnabledByMe      EodEnablement[] @relation("EodEnablementEnabler")
 
   @@index([email])
   @@index([managerId])
@@ -171,4 +173,23 @@ model EodRecord {
   @@index([date])
   @@index([status])
   @@map("eod_records")
+}
+
+/// HR override allowing an employee to submit EOD outside the 9 AM–7 PM window
+model EodEnablement {
+  id            String   @id
+  userId        String   @map("user_id")
+  date          DateTime @db.Date
+  enabledById   String   @map("enabled_by_id")
+  enabledByName String   @map("enabled_by_name")
+  note          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user      User @relation("EodEnablementEmployee", fields: [userId], references: [id], onDelete: Cascade)
+  enabledBy User @relation("EodEnablementEnabler", fields: [enabledById], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([date])
+  @@index([enabledById])
+  @@map("eod_enablements")
 }

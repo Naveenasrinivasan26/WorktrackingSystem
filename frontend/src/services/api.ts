@@ -1,4 +1,4 @@
-import { LoginResponse, User, WorkFilters, WorkStats, WorkStatus, WorkUpdate, EmployeeQuery, EmployeeQueryDetail, QueryFilters, QueryStatus, QueryType, AppNotification, EodRecord, EodReport } from '../types';
+import { LoginResponse, User, WorkFilters, WorkStats, WorkStatus, WorkUpdate, EmployeeQuery, EmployeeQueryDetail, QueryFilters, QueryStatus, QueryType, AppNotification, EodRecord, EodReport, EodEnablement, EodSubmissionGate } from '../types';
 
 const API_BASE = '/api';
 
@@ -218,6 +218,16 @@ export const api = {
       if (filters.userId) params.append('userId', filters.userId);
       return request(`/eod/report?${params.toString()}`);
     },
+    submissionStatus: (date?: string): Promise<EodSubmissionGate> => {
+      const params = new URLSearchParams();
+      if (date) params.set('date', date);
+      const qs = params.toString();
+      return request(`/eod/submission-status${qs ? `?${qs}` : ''}`);
+    },
+    enable: (userId: string, date: string, note?: string): Promise<EodEnablement> =>
+      request('/eod/enable', { method: 'POST', body: JSON.stringify({ userId, date, note }) }),
+    disable: (userId: string, date: string): Promise<{ message: string }> =>
+      request('/eod/disable', { method: 'POST', body: JSON.stringify({ userId, date }) }),
   },
 
   seed: {

@@ -1,6 +1,12 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from './prisma.js';
-import { User, WorkUpdate, WorkAttachment, EditHistory, WorkStatus, WorkStats, WorkFilters, UserRole, EmployeeQuery, QueryFilters, QueryStatus, QueryType, EodRecord, EodReport, EodStatus, AppNotification, EmployeeQueryDetail } from '../../frontend/src/types.js';
+import { User, WorkUpdate, WorkAttachment, EditHistory, WorkStatus, WorkStats, WorkFilters, UserRole, EmployeeQuery, QueryFilters, QueryStatus, QueryType, EodRecord, EodReport, EodStatus, EodSubmissionGate, EodEnablement, EodSubmissionStatus, AppNotification, EmployeeQueryDetail } from '../../frontend/src/types.js';
+import {
+  getAppTimezone,
+  getEodWindowMeta,
+  getTodayInAppTimezone,
+  getUtcRangeForLocalDate,
+} from './eodWindow.js';
 
 // Seed Managing Director details (the internal permission role remains super_admin)
 export const SEED_ADMIN_EMAIL = 'md@company.com';
@@ -543,6 +549,11 @@ export async function createWorkUpdate(
     eodDate?: string;
   }
 ): Promise<WorkUpdate> {
+  const eodDate = data.eodDate || getTodayInAppTimezone();
+  if (user.role === 'employee') {
+    await assertEmployeeCanSubmitEod(user.id, eodDate);
+  }
+
   const workId = `work-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
   const createdWork = await prisma.workUpdate.create({
@@ -574,7 +585,7 @@ export async function createWorkUpdate(
     },
   });
 
-  await upsertEodRecord(user.id, data.eodDate || toIsoDate(new Date())!, 'marked');
+  await upsertEodRecord(user.id, eodDate, 'marked');
 
   return mapPrismaWork(createdWork);
 }
@@ -827,6 +838,285 @@ export async function changePassword(userId: string, currentPassword: string, ne
   });
 }
 
+function mapPrismaEodEnablement(record: any): EodEnablement {
+  return {
+    id: record.id,
+    userId: record.userId,
+    date: toIsoDate(record.date) || '',
+    enabledById: record.enabledById,
+    enabledByName: record.enabledByName,
+    note: record.note || null,
+    createdAt: record.createdAt instanceof Date ? record.createdAt.toISOString() : new Date(record.createdAt).toISOString(),
+  };
+}
+
+function submissionMessage(
+  status: EodSubmissionStatus,
+  dateStr: string,
+  window: ReturnType<typeof getEodWindowMeta>
+): string {
+  const closeLabel = window.closeHour > 12 ? `${window.closeHour - 12}:00 PM` : `${window.closeHour}:00 AM`;
+  const openLabel = `${window.openHour}:00 AM`;
+  switch (status) {
+    case 'submitted':
+      return 'EOD already submitted for this date.';
+    case 'open':
+      return `EOD is open. You can submit between ${openLabel} and ${closeLabel} (${window.timezone}).`;
+    case 'before_open':
+      return `EOD opens at ${openLabel} (${window.timezone}).`;
+    case 'pending':
+      return 'HR has enabled EOD submission for this date. Please submit now.';
+    case 'locked':
+    default:
+      if (dateStr === window.today) {
+        return `EOD is locked after ${closeLabel}. Contact HR to enable submission.`;
+      }
+      return 'EOD was missed for this date. Contact HR to enable submission.';
+  }
+}
+
+export async function getEodEnablement(userId: string, dateStr: string): Promise<EodEnablement | null> {
+  const date = parseDateOnly(dateStr);
+  const record = await prisma.eodEnablement.findUnique({
+    where: { userId_date: { userId, date } },
+  });
+  return record ? mapPrismaEodEnablement(record) : null;
+}
+
+export async function resolveEodSubmissionStatus(
+  userId: string,
+  dateStr: string,
+  options: { eodStatus?: EodStatus | 'not_marked'; hrEnabled?: boolean } = {}
+): Promise<{
+  submissionStatus: EodSubmissionStatus;
+  eodStatus: 'marked' | 'absent_leave' | 'not_marked';
+  hrEnabled: boolean;
+  canSubmit: boolean;
+  canEnable: boolean;
+  canDisable: boolean;
+  window: ReturnType<typeof getEodWindowMeta>;
+}> {
+  const window = getEodWindowMeta();
+  let eodStatus: 'marked' | 'absent_leave' | 'not_marked' = 'not_marked';
+
+  if (options.eodStatus !== undefined) {
+    eodStatus =
+      options.eodStatus === 'marked' || options.eodStatus === 'absent_leave' ? options.eodStatus : 'not_marked';
+  } else {
+    const existing = await prisma.eodRecord.findUnique({
+      where: { userId_date: { userId, date: parseDateOnly(dateStr) } },
+    });
+    if (existing?.status === 'marked' || existing?.status === 'absent_leave') {
+      eodStatus = existing.status as EodStatus;
+    }
+  }
+
+  const hrEnabled =
+    typeof options.hrEnabled === 'boolean'
+      ? options.hrEnabled
+      : Boolean(await getEodEnablement(userId, dateStr));
+
+  if (eodStatus !== 'not_marked') {
+    return {
+      submissionStatus: 'submitted',
+      eodStatus,
+      hrEnabled,
+      canSubmit: false,
+      canEnable: false,
+      canDisable: false,
+      window,
+    };
+  }
+
+  if (dateStr > window.today) {
+    return {
+      submissionStatus: 'locked',
+      eodStatus,
+      hrEnabled,
+      canSubmit: false,
+      canEnable: false,
+      canDisable: hrEnabled,
+      window,
+    };
+  }
+
+  if (hrEnabled) {
+    return {
+      submissionStatus: 'pending',
+      eodStatus,
+      hrEnabled: true,
+      canSubmit: true,
+      canEnable: false,
+      canDisable: true,
+      window,
+    };
+  }
+
+  if (dateStr === window.today) {
+    if (window.phase === 'open') {
+      return {
+        submissionStatus: 'open',
+        eodStatus,
+        hrEnabled: false,
+        canSubmit: true,
+        canEnable: false,
+        canDisable: false,
+        window,
+      };
+    }
+    if (window.phase === 'before_open') {
+      return {
+        submissionStatus: 'before_open',
+        eodStatus,
+        hrEnabled: false,
+        canSubmit: false,
+        canEnable: false,
+        canDisable: false,
+        window,
+      };
+    }
+  }
+
+  return {
+    submissionStatus: 'locked',
+    eodStatus,
+    hrEnabled: false,
+    canSubmit: false,
+    canEnable: true,
+    canDisable: false,
+    window,
+  };
+}
+
+export async function assertEmployeeCanSubmitEod(userId: string, dateStr: string): Promise<void> {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error('A valid EOD date (YYYY-MM-DD) is required');
+  }
+
+  const resolved = await resolveEodSubmissionStatus(userId, dateStr);
+  if (resolved.canSubmit) return;
+
+  throw new Error(submissionMessage(resolved.submissionStatus, dateStr, resolved.window));
+}
+
+export async function getMyEodSubmissionGate(user: User, dateStr?: string): Promise<EodSubmissionGate> {
+  const window = getEodWindowMeta();
+  const date = dateStr || window.today;
+  const enablement = await getEodEnablement(user.id, date);
+  const resolved = await resolveEodSubmissionStatus(user.id, date, { hrEnabled: Boolean(enablement) });
+
+  let reason: string | null = null;
+  if (resolved.eodStatus !== 'not_marked') {
+    const existing = await prisma.eodRecord.findUnique({
+      where: { userId_date: { userId: user.id, date: parseDateOnly(date) } },
+    });
+    reason = existing?.reason || null;
+  }
+
+  return {
+    date,
+    canSubmit: resolved.canSubmit,
+    submissionStatus: resolved.submissionStatus,
+    eodStatus: resolved.eodStatus,
+    hrEnabled: resolved.hrEnabled,
+    reason,
+    message: submissionMessage(resolved.submissionStatus, date, resolved.window),
+    window: resolved.window,
+    enablement,
+  };
+}
+
+export async function enableEodSubmission(
+  actor: User,
+  userId: string,
+  dateStr: string,
+  note?: string
+): Promise<EodEnablement> {
+  if (!isHrRole(actor.role)) {
+    throw new Error('Only HR/Admin can enable EOD submission');
+  }
+  if (!userId) throw new Error('Employee is required');
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error('A valid date (YYYY-MM-DD) is required');
+  }
+
+  const employee = await prisma.user.findUnique({ where: { id: userId } });
+  if (!employee || employee.role !== 'employee') {
+    throw new Error('EOD enablement is only available for employees');
+  }
+  if (!employee.isActive) {
+    throw new Error('Cannot enable EOD for an inactive employee');
+  }
+
+  const window = getEodWindowMeta();
+  if (dateStr > window.today) {
+    throw new Error('Cannot enable EOD for a future date');
+  }
+
+  const date = parseDateOnly(dateStr);
+  const existingEod = await prisma.eodRecord.findUnique({
+    where: { userId_date: { userId, date } },
+  });
+  if (existingEod?.status === 'marked' || existingEod?.status === 'absent_leave') {
+    throw new Error('EOD is already submitted for this employee and date');
+  }
+
+  const existingEnablement = await prisma.eodEnablement.findUnique({
+    where: { userId_date: { userId, date } },
+  });
+  if (existingEnablement) {
+    return mapPrismaEodEnablement(existingEnablement);
+  }
+
+  if (dateStr === window.today && window.phase === 'open') {
+    throw new Error('EOD is already open for today; enablement is not required');
+  }
+  if (dateStr === window.today && window.phase === 'before_open') {
+    throw new Error('EOD opens at 9:00 AM. Enablement is only needed after the deadline is missed.');
+  }
+
+  const created = await prisma.eodEnablement.create({
+    data: {
+      id: newId('eod-en'),
+      userId,
+      date,
+      enabledById: actor.id,
+      enabledByName: actor.fullName,
+      note: note?.trim() || null,
+    },
+  });
+
+  return mapPrismaEodEnablement(created);
+}
+
+export async function disableEodSubmission(actor: User, userId: string, dateStr: string): Promise<{ message: string }> {
+  if (!isHrRole(actor.role)) {
+    throw new Error('Only HR/Admin can disable EOD submission');
+  }
+  if (!userId) throw new Error('Employee is required');
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error('A valid date (YYYY-MM-DD) is required');
+  }
+
+  const date = parseDateOnly(dateStr);
+  const existing = await prisma.eodEnablement.findUnique({
+    where: { userId_date: { userId, date } },
+  });
+  if (!existing) {
+    throw new Error('No HR enablement found for this employee and date');
+  }
+
+  const eod = await prisma.eodRecord.findUnique({
+    where: { userId_date: { userId, date } },
+  });
+  if (eod?.status === 'marked' || eod?.status === 'absent_leave') {
+    throw new Error('Cannot disable EOD after it has already been submitted');
+  }
+
+  await prisma.eodEnablement.delete({ where: { id: existing.id } });
+  return { message: 'EOD enablement removed. Submission is locked again.' };
+}
+
 export async function upsertEodRecord(userId: string, dateStr: string, status: EodStatus, reason?: string | null) {
   const date = parseDateOnly(dateStr);
   const existing = await prisma.eodRecord.findUnique({
@@ -857,6 +1147,10 @@ export async function markAbsentLeave(user: User, dateStr: string, reason: strin
     throw new Error('Please provide a reason/note for absence or leave');
   }
 
+  if (user.role === 'employee') {
+    await assertEmployeeCanSubmitEod(user.id, dateStr);
+  }
+
   const date = parseDateOnly(dateStr);
   const existing = await prisma.eodRecord.findUnique({
     where: { userId_date: { userId: user.id, date } },
@@ -873,8 +1167,8 @@ export async function markAbsentLeave(user: User, dateStr: string, reason: strin
 export async function getEodReport(dateStr: string, filters: { department?: string; userId?: string } = {}): Promise<EodReport> {
   if (!dateStr) throw new Error('Date is required');
   const date = parseDateOnly(dateStr);
-  const nextDay = new Date(date);
-  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const { start, end } = getUtcRangeForLocalDate(dateStr, getAppTimezone());
+  const window = getEodWindowMeta();
 
   const employees = await prisma.user.findMany({
     where: {
@@ -886,15 +1180,22 @@ export async function getEodReport(dateStr: string, filters: { department?: stri
     orderBy: { fullName: 'asc' },
   });
 
+  const employeeIds = employees.map((e) => e.id);
+
   const eodRecords = await prisma.eodRecord.findMany({
-    where: { date, userId: { in: employees.map((e) => e.id) } },
+    where: { date, userId: { in: employeeIds } },
   });
   const eodByUser = new Map(eodRecords.map((r) => [r.userId, r]));
 
+  const enablements = await prisma.eodEnablement.findMany({
+    where: { date, userId: { in: employeeIds } },
+  });
+  const enablementByUser = new Map(enablements.map((r) => [r.userId, r]));
+
   const worksThatDay = await prisma.workUpdate.findMany({
     where: {
-      userId: { in: employees.map((e) => e.id) },
-      createdAt: { gte: date, lt: nextDay },
+      userId: { in: employeeIds },
+      createdAt: { gte: start, lt: end },
     },
     select: { userId: true, createdAt: true },
   });
@@ -910,6 +1211,7 @@ export async function getEodReport(dateStr: string, filters: { department?: stri
   for (const employee of employees) {
     const eod = eodByUser.get(employee.id);
     const workAt = workByUser.get(employee.id);
+    const hrEnabled = enablementByUser.has(employee.id);
     const base = {
       userId: employee.id,
       fullName: employee.fullName,
@@ -922,6 +1224,10 @@ export async function getEodReport(dateStr: string, filters: { department?: stri
       absentLeave.push({
         ...base,
         eodStatus: 'absent_leave',
+        submissionStatus: 'submitted',
+        hrEnabled,
+        canEnable: false,
+        canDisable: false,
         reason: eod.reason,
         markedAt: eod.updatedAt.toISOString(),
       });
@@ -929,14 +1235,29 @@ export async function getEodReport(dateStr: string, filters: { department?: stri
       marked.push({
         ...base,
         eodStatus: 'marked',
+        submissionStatus: 'submitted',
+        hrEnabled,
+        canEnable: false,
+        canDisable: false,
         markedAt: (eod?.updatedAt || workAt)!.toISOString(),
       });
     } else {
-      notMarked.push({ ...base, eodStatus: 'not_marked' });
+      const resolved = await resolveEodSubmissionStatus(employee.id, dateStr, {
+        eodStatus: 'not_marked',
+        hrEnabled,
+      });
+      notMarked.push({
+        ...base,
+        eodStatus: 'not_marked',
+        submissionStatus: resolved.submissionStatus,
+        hrEnabled: resolved.hrEnabled,
+        canEnable: resolved.canEnable,
+        canDisable: resolved.canDisable,
+      });
     }
   }
 
-  return { date: dateStr, marked, absentLeave, notMarked };
+  return { date: dateStr, window, marked, absentLeave, notMarked };
 }
 
 export async function getEmployeeEodHistory(userId: string, days = 14): Promise<EodRecord[]> {
@@ -1156,6 +1477,7 @@ export async function markAllNotificationsRead(userId: string): Promise<void> {
 export async function resetAndSeedDb() {
   await prisma.notification.deleteMany();
   await prisma.employeeQuery.deleteMany();
+  await prisma.eodEnablement.deleteMany();
   await prisma.eodRecord.deleteMany();
   await prisma.editHistory.deleteMany();
   await prisma.workAttachment.deleteMany();
